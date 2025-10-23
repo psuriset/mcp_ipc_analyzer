@@ -84,7 +84,7 @@ def get_process_connection_snapshot():
 
 async def _collect_agent_output(duration: int):
     """Runs the eBPF agent for a specified duration and yields events as they are captured."""
-    command = ["sudo", "python3", "-u", AGENT_SCRIPT_PATH]
+    command = ["python3", "-u", AGENT_SCRIPT_PATH]
     process = await asyncio.create_subprocess_exec(
         *command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
     )
