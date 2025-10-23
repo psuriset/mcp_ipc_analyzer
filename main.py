@@ -68,31 +68,48 @@ def get_process_connection_snapshot():
             pass
     return {"process_connections": proc_list}
 
-async def _collect_agent_output(duration: int) -> list:
+async def _collect_agent_output(duration: int):
+    """Runs the eBPF agent for a specified duration and yields events as they are captured."""
     command = ["sudo", "python3", "-u", AGENT_SCRIPT_PATH]
     process = await asyncio.create_subprocess_exec(
         *command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
     )
-    async def reader_task():
-        while True:
-            line = await process.stdout.readline()
-            if not line: break
-            yield json.loads(line.decode('utf-8').strip()))
+
     try:
-        await asyncio.wait_for(reader_task(), timeout=duration)
-    except asyncio.TimeoutError:
-        pass
+        # Run the agent for the specified duration
+        end_time = asyncio.get_running_loop().time() + duration
+        while True:
+            # Calculate remaining time to prevent readline from blocking indefinitely
+            timeout = end_time - asyncio.get_running_loop().time()
+            if timeout <= 0:
+                break
+
+            try:
+                line = await asyncio.wait_for(process.stdout.readline(), timeout=timeout)
+                if not line:
+                    break  # End of stream from agent
+
+                # Yield the processed event, ignoring malformed lines
+                try:
+                    yield json.loads(line.decode('utf-8').strip())
+                except (json.JSONDecodeError, UnicodeDecodeError):
+                    pass
+            except asyncio.TimeoutError:
+                # This is the expected way to exit the loop after the duration
+                break
     finally:
+        # Ensure the agent subprocess is terminated
         if process.returncode is None:
             process.terminate()
             await process.wait()
 
+
 async def _get_live_network_events(duration: MonitorParams):
-    yield json.dumps({"type": "status", "message": f"Network agent starting for {duration.duration_seconds} seconds."})
-    collected_events = await _collect_agent_output(duration.duration_seconds)
-    for event in collected_events:
-        yield json.dumps(event)
-    yield json.dumps({"type": "status", "message": "Monitoring finished."})
+    """The async generator that produces the event stream for the API endpoint."""
+    yield json.dumps({"type": "status", "message": f"Network agent starting for {duration.duration_seconds} seconds."}) + "\n"
+    async for event in _collect_agent_output(duration.duration_seconds):
+        yield json.dumps(event) + "\n"
+    yield json.dumps({"type": "status", "message": "Monitoring finished."}) + "\n"
 
 @app.post("/get_live_network_events", operation_id="get_live_network_events", summary="Runs a high-performance eBPF agent to capture only *new* network connections in real-time. Useful for monitoring changes.")
 async def get_live_network_events(duration: MonitorParams):
