@@ -1,5 +1,4 @@
 fastapi
 fastapi-mcp
 uvicorn[standard]
-sse-starlette
 psutil
