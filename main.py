@@ -21,17 +21,6 @@ from ebpf_agent.protocols import get_protocol
 AGENT_SCRIPT_PATH = "./ebpf_agent/agent.py"
 
 app = FastAPI(debug=True)
-mcp = FastApiMCP(
-    app,
-    name="RHEL IPC Analysis MCP Server (Model Agnostic)",
-    description="An MCP server with tools to gather system data and analyze process IPC.",
-    include_operations=[
-        "get_process_connection_snapshot",
-        "get_live_network_events",
-        "generate_ipc_analysis_prompt",
-    ],
-)
-mcp.mount_http()
 
 
 @app.get("/health", summary="Health Check")
@@ -188,8 +177,19 @@ Present your analysis in a clear, structured format.
 
 
 if __name__ == "__main__":
-    import uvicorn
+    mcp = FastApiMCP(
+        app,
+        name="RHEL IPC Analysis MCP Server (Model Agnostic)",
+        description="An MCP server with tools to gather system data and analyze process IPC.",
+        include_operations=[
+            "get_process_connection_snapshot",
+            "get_live_network_events",
+            "generate_ipc_analysis_prompt",
+        ],
+    )
+    mcp.mount_http()
 
+    import uvicorn
     print("Starting RHEL IPC Analysis MCP Server...")
     print("Access the OpenAPI docs at http://127.0.0.1:8000/docs")
     uvicorn.run(app, host="0.0.0.0", port=8000)
