@@ -25,48 +25,73 @@ mcp = FastApiMCP(
     app,
     name="RHEL IPC Analysis MCP Server (Model Agnostic)",
     description="An MCP server with tools to gather system data and analyze process IPC.",
-    include_operations=["get_process_connection_snapshot", "get_live_network_events", "generate_ipc_analysis_prompt"],
+    include_operations=[
+        "get_process_connection_snapshot",
+        "get_live_network_events",
+        "generate_ipc_analysis_prompt",
+    ],
 )
 mcp.mount_http()
+
 
 @app.get("/health", summary="Health Check")
 async def health_check():
     return {"status": "ok"}
 
+
 # --- Tool Implementation ---
-@app.get("/get_process_connection_snapshot", operation_id="get_process_connection_snapshot", summary="Provides a comprehensive snapshot of all running processes and their currently active/listening network connections (TCP/UDP), including identified application protocols.")
+@app.get(
+    "/get_process_connection_snapshot",
+    operation_id="get_process_connection_snapshot",
+    summary="Provides a comprehensive snapshot of all running processes and their currently active/listening network connections (TCP/UDP), including identified application protocols.",
+)
 def get_process_connection_snapshot():
     proc_list = []
-    for proc in psutil.process_iter(['pid', 'name', 'username', 'cmdline']):
+    for proc in psutil.process_iter(["pid", "name", "username", "cmdline"]):
         try:
             connections = []
-            for conn in proc.connections(kind='inet'):
+            for conn in proc.connections(kind="inet"):
                 # Identify the application protocol based on the port
                 app_protocol = "Unknown"
-                if conn.status == 'LISTEN':
+                if conn.status == "LISTEN":
                     app_protocol = get_protocol(conn.laddr.port)
                 elif conn.raddr:
                     app_protocol = get_protocol(conn.raddr.port)
 
-                connections.append({
-                    "transport_protocol": "TCP" if conn.type == socket.SOCK_STREAM else "UDP",
-                    "identified_application_protocol": app_protocol,
-                    "local_address": f"{conn.laddr.ip}:{conn.laddr.port}",
-                    "remote_address": f"{conn.raddr.ip}:{conn.raddr.port}" if conn.raddr else "N/A",
-                    "status": conn.status,
-                })
+                connections.append(
+                    {
+                        "transport_protocol": (
+                            "TCP" if conn.type == socket.SOCK_STREAM else "UDP"
+                        ),
+                        "identified_application_protocol": app_protocol,
+                        "local_address": f"{conn.laddr.ip}:{conn.laddr.port}",
+                        "remote_address": (
+                            f"{conn.raddr.ip}:{conn.raddr.port}"
+                            if conn.raddr
+                            else "N/A"
+                        ),
+                        "status": conn.status,
+                    }
+                )
 
             if connections:
-                proc_list.append({
-                    "pid": proc.info['pid'],
-                    "name": proc.info['name'],
-                    "user": proc.info['username'],
-                    "command": ' '.join(proc.info['cmdline']) if proc.info['cmdline'] else '',
-                    "connections": connections
-                })
+                proc_list.append(
+                    {
+                        "pid": proc.info["pid"],
+                        "name": proc.info["name"],
+                        "user": proc.info["username"],
+                        "command": (
+                            " ".join(proc.info["cmdline"])
+                            if proc.info["cmdline"]
+                            else ""
+                        ),
+                        "connections": connections,
+                    }
+                )
         except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
             pass
     return {"process_connections": proc_list}
+
 
 async def _collect_agent_output(duration: int):
     """Runs the eBPF agent for a specified duration and yields events as they are captured."""
@@ -85,13 +110,15 @@ async def _collect_agent_output(duration: int):
                 break
 
             try:
-                line = await asyncio.wait_for(process.stdout.readline(), timeout=timeout)
+                line = await asyncio.wait_for(
+                    process.stdout.readline(), timeout=timeout
+                )
                 if not line:
                     break  # End of stream from agent
 
                 # Yield the processed event, ignoring malformed lines
                 try:
-                    yield json.loads(line.decode('utf-8').strip())
+                    yield json.loads(line.decode("utf-8").strip())
                 except (json.JSONDecodeError, UnicodeDecodeError):
                     pass
             except asyncio.TimeoutError:
@@ -106,19 +133,33 @@ async def _collect_agent_output(duration: int):
 
 async def _get_live_network_events(duration: MonitorParams):
     """The async generator that produces the event stream for the API endpoint."""
-    yield json.dumps({"type": "status", "message": f"Network agent starting for {duration.duration_seconds} seconds."}) + "\n"
+    yield json.dumps(
+        {
+            "type": "status",
+            "message": f"Network agent starting for {duration.duration_seconds} seconds.",
+        }
+    ) + "\n"
     async for event in _collect_agent_output(duration.duration_seconds):
         yield json.dumps(event) + "\n"
     yield json.dumps({"type": "status", "message": "Monitoring finished."}) + "\n"
 
-@app.post("/get_live_network_events", operation_id="get_live_network_events", summary="Runs a high-performance eBPF agent to capture only *new* network connections in real-time. Useful for monitoring changes.")
+
+@app.post(
+    "/get_live_network_events",
+    operation_id="get_live_network_events",
+    summary="Runs a high-performance eBPF agent to capture only *new* network connections in real-time. Useful for monitoring changes.",
+)
 async def get_live_network_events(duration: MonitorParams):
     return StreamingResponse(
-      _get_live_network_events(duration),
-      media_type="text/event-stream"
+        _get_live_network_events(duration), media_type="text/event-stream"
     )
 
-@app.get("/generate_ipc_analysis_prompt", operation_id="generate_ipc_analysis_prompt", summary="Gathers data using the other tools and constructs a detailed prompt for an LLM to perform a system IPC analysis.")
+
+@app.get(
+    "/generate_ipc_analysis_prompt",
+    operation_id="generate_ipc_analysis_prompt",
+    summary="Gathers data using the other tools and constructs a detailed prompt for an LLM to perform a system IPC analysis.",
+)
 async def generate_ipc_analysis_prompt():
     process_connections = get_connection_snapshot()
     analysis_prompt = f"""
@@ -139,12 +180,16 @@ Present your analysis in a clear, structured format.
     return {
         "analysis_prompt": analysis_prompt,
         "data_summary": {
-            "processes_with_connections": len(process_connections.get("process_connections", []))
-        }
+            "processes_with_connections": len(
+                process_connections.get("process_connections", [])
+            )
+        },
     }
+
 
 if __name__ == "__main__":
     import uvicorn
+
     print("Starting RHEL IPC Analysis MCP Server...")
     print("Access the OpenAPI docs at http://127.0.0.1:8000/docs")
     uvicorn.run(app, host="0.0.0.0", port=8000)
