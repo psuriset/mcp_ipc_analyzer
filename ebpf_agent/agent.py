@@ -10,7 +10,6 @@ import json
 import socket
 import sys
 import traceback
-import signal
 from datetime import datetime
 from bcc import BPF
 
@@ -148,20 +147,7 @@ def print_event(cpu, data, size):
         # Use stderr for errors to not corrupt the JSON output stream
         traceback.print_exc(file=sys.stderr)
 
-# Global flag to control the main loop
-running = True
-
-def signal_handler(signum, frame):
-    """Handles SIGTERM and SIGINT to gracefully shut down the agent."""
-    global running
-    running = False
-    sys.stderr.write(f"Caught signal {signum}, stopping agent...\n")
-
 if __name__ == "__main__":
-    # Register the signal handler for SIGTERM and SIGINT
-    signal.signal(signal.SIGTERM, signal_handler)
-    signal.signal(signal.SIGINT, signal_handler)
-
     b = BPF(text=bpf_program)
     b.attach_kprobe(event="tcp_v4_connect", fn_name="trace_tcp_v4_connect")
     b.attach_kprobe(event="tcp_v6_connect", fn_name="trace_tcp_v6_connect")
@@ -171,11 +157,11 @@ if __name__ == "__main__":
     b["events"].open_perf_buffer(print_event)
 
     try:
-        while running:
-            b.perf_buffer_poll(timeout=200)
+        while True:
+            b.perf_buffer_poll()
+    except KeyboardInterrupt:
+        sys.stderr.write("Agent stopped.\n")
+        exit(0)
     except Exception:
         traceback.print_exc(file=sys.stderr)
         exit(1)
-    finally:
-        sys.stderr.write("Agent stopped.\n")
-        exit(0)
