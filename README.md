@@ -16,15 +16,21 @@ This server is **model-agnostic**. It provides tools to gather raw data and a sp
 
 ## 3. Prerequisites & Installation
 
-- Python 3.7+
+- Python 3.10+
 - BCC and Kernel Headers for the eBPF agent. Install with:
   ```bash
-  sudo dnf install -y bcc bcc-tools kernel-devel-$(uname -r) python3
+  # dnf install -y bcc bcc-tools kernel-devel-$(uname -r) python3.13
+  ```
+- Mine bcc lib was installed to older Python, so workaround it:
+  ```bash
+  # ln -s /usr/lib/python3.9/site-packages/bcc /usr/lib/python3.13/site-packages/bcc
   ```
 - Install Python libraries:
   ```bash
-  cd rhel_ipc_analyzer
-  pip3 install -r requirements.txt
+  # cd rhel_ipc_analyzer
+  # python3.13 -m venv venv --system-site-packages
+  # source venv/bin/activate
+  # pip install -r requirements.txt
   ```
 
 ## 4. How to Run the Server
