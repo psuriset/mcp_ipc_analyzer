@@ -12,92 +12,30 @@ import psutil
 import socket
 import sys
 from fastapi import FastAPI, Request, HTTPException, Response
-from sse_starlette.sse import EventSourceResponse
-from pydantic import BaseModel, Field
+from fastapi.responses import StreamingResponse
+from fastapi_mcp import FastApiMCP
 
-# --- Configuration ---
-# Add the ebpf_agent subdirectory to the path to allow importing protocols
-sys.path.insert(0, './ebpf_agent')
-from protocols import get_protocol
+from models import MonitorParams
+from ebpf_agent.protocols import get_protocol
 
 AGENT_SCRIPT_PATH = "./ebpf_agent/agent.py"
 
-# --- MCP Server Setup ---
-app = FastAPI(
-    title="RHEL IPC Analysis MCP Server (Model Agnostic)",
+app = FastAPI(debug=True)
+mcp = FastApiMCP(
+    app,
+    name="RHEL IPC Analysis MCP Server (Model Agnostic)",
     description="An MCP server with tools to gather system data and analyze process IPC.",
-    version="2.3.2", # Incremented version for the protocol fix
+    include_operations=["get_process_connection_snapshot", "get_live_network_events", "generate_ipc_analysis_prompt"],
 )
+mcp.mount_http()
 
-# --- Pydantic Models for Tool Parameters ---
-class MonitorParams(BaseModel):
-    duration_seconds: int = Field(
-        default=10,
-        title="Monitoring Duration",
-        description="The number of seconds to run the network monitoring agent.",
-    )
-
-class AnalystParams(BaseModel):
-    monitoring_duration_seconds: int = Field(
-        default=10,
-        title="Analysis Monitoring Duration",
-        description="The number of seconds to monitor network events for the analysis prompt.",
-    )
-
-# --- Tool Definitions ---
-TOOLS = {
-    "get_process_connection_snapshot": {
-        "description": "Provides a comprehensive snapshot of all running processes and their currently active/listening network connections (TCP/UDP), including identified application protocols.",
-        "parameters": {},
-    },
-    "get_live_network_events": {
-        "description": "Runs a high-performance eBPF agent to capture only *new* network connections in real-time. Useful for monitoring changes.",
-        "parameters": MonitorParams.model_json_schema(),
-    },
-    "generate_ipc_analysis_prompt": {
-        "description": "Gathers data using the other tools and constructs a detailed prompt for an LLM to perform a system IPC analysis.",
-        "parameters": AnalystParams.model_json_schema(),
-    },
-}
-
-# --- MCP Endpoints ---
-@app.get("/", summary="Health Check", include_in_schema=False)
+@app.get("/health", summary="Health Check")
 async def health_check():
     return {"status": "ok"}
 
-@app.get("/mcp/list_tools", summary="List Available Tools")
-async def list_tools():
-    tool_list = [{"name": name, **details} for name, details in TOOLS.items()]
-    return {"tools": tool_list}
-
-@app.post("/mcp/call_tool", summary="Call a Tool")
-async def call_tool(request: Request):
-    try:
-        body = await request.json()
-        tool_name = body.get("tool_name")
-        params = body.get("parameters", {})
-
-        if tool_name not in TOOLS:
-            raise HTTPException(status_code=404, detail=f"Tool '{tool_name}' not found.")
-
-        if tool_name == "get_process_connection_snapshot":
-            result = get_connection_snapshot()
-            return Response(content=json.dumps(result, indent=2), media_type="application/json")
-
-        elif tool_name == "get_live_network_events":
-            p = MonitorParams(**params)
-            return EventSourceResponse(stream_agent_output(p.duration_seconds), media_type="text/event-stream")
-
-        elif tool_name == "generate_ipc_analysis_prompt":
-            p = AnalystParams(**params)
-            result = await run_prompt_generation()
-            return Response(content=json.dumps(result, indent=2), media_type="application/json")
-
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Error calling tool: {str(e)}")
-
 # --- Tool Implementation ---
-def get_connection_snapshot():
+@app.get("/get_process_connection_snapshot", operation_id="get_process_connection_snapshot", summary="Provides a comprehensive snapshot of all running processes and their currently active/listening network connections (TCP/UDP), including identified application protocols.")
+def get_process_connection_snapshot():
     proc_list = []
     for proc in psutil.process_iter(['pid', 'name', 'username', 'cmdline']):
         try:
@@ -117,7 +55,7 @@ def get_connection_snapshot():
                     "remote_address": f"{conn.raddr.ip}:{conn.raddr.port}" if conn.raddr else "N/A",
                     "status": conn.status,
                 })
-            
+
             if connections:
                 proc_list.append({
                     "pid": proc.info['pid'],
@@ -132,7 +70,6 @@ def get_connection_snapshot():
 
 async def _collect_agent_output(duration: int) -> list:
     command = ["sudo", "python3", "-u", AGENT_SCRIPT_PATH]
-    output_list = []
     process = await asyncio.create_subprocess_exec(
         *command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
     )
@@ -140,7 +77,7 @@ async def _collect_agent_output(duration: int) -> list:
         while True:
             line = await process.stdout.readline()
             if not line: break
-            output_list.append(json.loads(line.decode('utf-8').strip()))
+            yield json.loads(line.decode('utf-8').strip()))
     try:
         await asyncio.wait_for(reader_task(), timeout=duration)
     except asyncio.TimeoutError:
@@ -149,16 +86,23 @@ async def _collect_agent_output(duration: int) -> list:
         if process.returncode is None:
             process.terminate()
             await process.wait()
-    return output_list
 
-async def stream_agent_output(duration: int):
-    yield json.dumps({"type": "status", "message": f"Network agent starting for {duration} seconds."})
-    collected_events = await _collect_agent_output(duration)
+async def _get_live_network_events(duration: MonitorParams):
+    yield json.dumps({"type": "status", "message": f"Network agent starting for {duration.duration_seconds} seconds."})
+    collected_events = await _collect_agent_output(duration.duration_seconds)
     for event in collected_events:
         yield json.dumps(event)
     yield json.dumps({"type": "status", "message": "Monitoring finished."})
 
-async def run_prompt_generation():
+@app.post("/get_live_network_events", operation_id="get_live_network_events", summary="Runs a high-performance eBPF agent to capture only *new* network connections in real-time. Useful for monitoring changes.")
+async def get_live_network_events(duration: MonitorParams):
+    return StreamingResponse(
+      _get_live_network_events(duration),
+      media_type="text/event-stream"
+    )
+
+@app.get("/generate_ipc_analysis_prompt", operation_id="generate_ipc_analysis_prompt", summary="Gathers data using the other tools and constructs a detailed prompt for an LLM to perform a system IPC analysis.")
+async def generate_ipc_analysis_prompt():
     process_connections = get_connection_snapshot()
     analysis_prompt = f"""
 As an expert Linux Systems Analyst, your task is to analyze a snapshot of processes and their network connections from a RHEL 8 system to identify Inter-Process Communication (IPC) patterns.
