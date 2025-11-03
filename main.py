@@ -21,7 +21,10 @@ from ebpf_agent.protocols import get_protocol
 
 AGENT_SCRIPT_PATH = "./ebpf_agent/agent.py"
 
-app = FastAPI(debug=True)
+app = FastAPI(
+    debug=True,
+    summary=f"An MCP server for {socket.gethostname()} machine with tools to gather system data and analyze process inter process comunication.",
+)
 
 
 @app.get("/health", summary="Health Check")
@@ -214,13 +217,15 @@ if __name__ == "__main__":
     mcp = FastApiMCP(
         app,
         name=f"IPC Analysis MCP Server for {socket.gethostname()} machine",
-        description="An MCP server with tools to gather system data and analyze process IPC.",
+        description=f"An MCP server for {socket.gethostname()} machine with tools to gather system data and analyze process IPC.",
         include_operations=[
             "get_process_connection_snapshot",
             "get_live_network_events",
             "generate_ipc_analysis_prompt",
             "send_signal_to_pid",
         ],
+        describe_all_response_schemas=True,
+        describe_full_response_scheme=True,
     )
     mcp.mount_http()
 
