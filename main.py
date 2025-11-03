@@ -23,7 +23,7 @@ AGENT_SCRIPT_PATH = "./ebpf_agent/agent.py"
 
 app = FastAPI(
     debug=True,
-    summary=f"An MCP server for {socket.gethostname()} machine with tools to gather system data and analyze process inter process comunication.",
+    summary=f"An MCP server for {socket.gethostname()} machine with tools to gather system data, analyze inter process communication and signal processes.",
 )
 
 
@@ -36,7 +36,7 @@ async def health_check():
 @app.get(
     "/get_process_connection_snapshot",
     operation_id="get_process_connection_snapshot",
-    summary="Provides a comprehensive snapshot of all running processes and their currently active/listening network connections (TCP/UDP), including identified application protocols.",
+    summary=f"Provides a comprehensive snapshot of all running processes on machine {socket.gethostname()} and their currently active/listening network connections (TCP/UDP), including identified application protocols.",
 )
 def get_process_connection_snapshot():
     proc_list = []
@@ -140,7 +140,7 @@ async def _get_live_network_events(duration: MonitorParams):
 @app.post(
     "/get_live_network_events",
     operation_id="get_live_network_events",
-    summary="Runs a high-performance eBPF agent to capture only *new* network connections in real-time. Useful for monitoring changes.",
+    summary=f"Runs a high-performance eBPF agent on machine {socket.gethostname()} to capture only *new* network connections in real-time. Useful for monitoring changes.",
 )
 async def get_live_network_events(duration: MonitorParams):
     return StreamingResponse(
@@ -151,7 +151,7 @@ async def get_live_network_events(duration: MonitorParams):
 @app.get(
     "/generate_ipc_analysis_prompt",
     operation_id="generate_ipc_analysis_prompt",
-    summary="Gathers data using the other tools and constructs a detailed prompt for an LLM to perform a system IPC analysis.",
+    summary=f"Gathers data on machine {socket.gethostname()} using the other tools and constructs a detailed prompt for an LLM to perform a system IPC analysis.",
 )
 async def generate_ipc_analysis_prompt():
     process_connections = get_process_connection_snapshot()
@@ -183,7 +183,7 @@ Present your analysis in a clear, structured format.
 @app.post(
     "/send_signal_to_pid",
     operation_id="send_signal_to_pid",
-    summary="Send given signal to process identified by given PID. This is very dangerous, as it could kill any process on the machine. E.g. use signal 'SIGINT' to send 'interrupt from keyboard (CTRL + C)' or if it does not make process to stop, send 'SIGKILL' to 'Kill signal - it cannot be caught, blocked, or ignored'.",
+    summary=f"Send given signal to process identified by given PID on machine {socket.gethostname()}. This is very dangerous, as it could kill any process on the machine. E.g. use signal 'SIGINT' to send 'interrupt from keyboard (CTRL + C)' or if it does not make process to stop, send 'SIGKILL' to 'Kill signal - it cannot be caught, blocked, or ignored'.",
 )
 async def send_signal_to_pid(params: SignalParams):
     if not params.sig_str.startswith("SIG"):
@@ -217,15 +217,13 @@ if __name__ == "__main__":
     mcp = FastApiMCP(
         app,
         name=f"IPC Analysis MCP Server for {socket.gethostname()} machine",
-        description=f"An MCP server for {socket.gethostname()} machine with tools to gather system data and analyze process IPC.",
+        description=f"An MCP server for {socket.gethostname()} machine with tools to gather system data, analyze inter process communication and signal processes.",
         include_operations=[
             "get_process_connection_snapshot",
             "get_live_network_events",
             "generate_ipc_analysis_prompt",
             "send_signal_to_pid",
         ],
-        describe_all_response_schemas=True,
-        describe_full_response_scheme=True,
     )
     mcp.mount_http()
 
