@@ -201,7 +201,11 @@ async def send_signal_to_pid(params: SignalParams):
     except Exception as e:
         return {"error": f"Failed to send a signal {sig.name} to process {params.pid}: {e}"}
     else:
-        return {"pid": params.pid, "sig_str": sig.name, "message": "Signal sent to the process", "process_status": psutil.Process(params.pid).as_dict()}
+        try:
+            current = psutil.Process(params.pid).as_dict()
+        except psutil.NoSuchProcess:
+            current = {"status": "No such process"}
+        return {"pid": params.pid, "sig_str": sig.name, "message": "Signal sent to the process", "process_status": current}
 
 
 if __name__ == "__main__":
