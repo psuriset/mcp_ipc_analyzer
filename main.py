@@ -176,6 +176,33 @@ Present your analysis in a clear, structured format.
     }
 
 
+@app.post(
+    "/send_signal_to_pid",
+    operation_id="send_signal_to_pid",
+    summary="Send given signal to process identified by given PID. This is very dangerous, as it could kill any process on the machine. E.g. use signal 'SIGINT' to send 'interrupt from keyboard (CTRL + C)' or if it does not make process to stop, send 'SIGKILL' to 'Kill signal - it cannot be caught, blocked, or ignored'.",
+)
+async def send_signal_to_pid(pid: int, sig_str: str):
+    if not sig_str.startswith("SIG"):
+        return {"error": f"Provided signal name does not start with 'SIG', so does not look like valid signal. You can use e.g. 'SIGINT'."}
+    sig = getattr(signal, sig_str, None)
+    if sig is None:
+        return {"error": f"Provided signal not defined in Python's 'signal' module. You can use e.g. 'SIGINT'."}
+    if not isinstance(sig, signal.Signal)
+        return {"error": f"Provided signal is not a valid signal in Python's 'signal' module. You can use e.g. 'SIGINT'."}
+    if pid in (0, 1, 2):
+        return {"error": f"Process with PID {pid} is considered too important for the system, so denying to send a signal."}
+    if pid == os.getpid():
+        return {"error": f"Process with PID {pid} is the MCP server itself, so denying to send a signal."}
+    if not psutil.pid_exists(pid):
+        return {"error": f"Process with PID {pid} does not exist."}
+    try:
+        os.kill(pid, sig)
+    except Exception as e:
+        return {"error": f"Failed to send a signal {sig.name} to process {pid}: {e}"}
+    else:
+        return {"pid": pid, "sig_str": sig.name, "message": "Signal sent to the process", "process_status": psutil.Process(pid).as_dict()}
+
+
 if __name__ == "__main__":
     mcp = FastApiMCP(
         app,
