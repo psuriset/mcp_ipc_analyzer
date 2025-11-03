@@ -213,7 +213,7 @@ async def send_signal_to_pid(params: SignalParams):
 if __name__ == "__main__":
     mcp = FastApiMCP(
         app,
-        name="RHEL IPC Analysis MCP Server (Model Agnostic)",
+        name=f"IPC Analysis MCP Server for {socket.gethostname()} machine",
         description="An MCP server with tools to gather system data and analyze process IPC.",
         include_operations=[
             "get_process_connection_snapshot",
