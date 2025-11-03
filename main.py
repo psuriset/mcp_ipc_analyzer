@@ -10,8 +10,9 @@ import asyncio
 import json
 import psutil
 import socket
-import sys
-from fastapi import FastAPI, Request, HTTPException, Response
+import signal
+import os
+from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
 from fastapi_mcp import FastApiMCP
 
@@ -150,7 +151,7 @@ async def get_live_network_events(duration: MonitorParams):
     summary="Gathers data using the other tools and constructs a detailed prompt for an LLM to perform a system IPC analysis.",
 )
 async def generate_ipc_analysis_prompt():
-    process_connections = get_connection_snapshot()
+    process_connections = get_process_connection_snapshot()
     analysis_prompt = f"""
 As an expert Linux Systems Analyst, your task is to analyze a snapshot of processes and their network connections from a RHEL 8 system to identify Inter-Process Communication (IPC) patterns.
 
@@ -183,12 +184,12 @@ Present your analysis in a clear, structured format.
 )
 async def send_signal_to_pid(pid: int, sig_str: str):
     if not sig_str.startswith("SIG"):
-        return {"error": f"Provided signal name does not start with 'SIG', so does not look like valid signal. You can use e.g. 'SIGINT'."}
+        return {"error": f"Provided signal name '{sig_str}' does not start with 'SIG', so does not look like valid signal. You can use e.g. 'SIGINT'."}
     sig = getattr(signal, sig_str, None)
     if sig is None:
-        return {"error": f"Provided signal not defined in Python's 'signal' module. You can use e.g. 'SIGINT'."}
+        return {"error": f"Provided signal name '{sig_str}' not defined in Python's 'signal' module. You can use e.g. 'SIGINT'."}
     if not isinstance(sig, signal.Signal):
-        return {"error": f"Provided signal is not a valid signal in Python's 'signal' module. You can use e.g. 'SIGINT'."}
+        return {"error": f"Provided signal name '{sig_str}' is not a valid signal in Python's 'signal' module. You can use e.g. 'SIGINT'."}
     if pid in (0, 1, 2):
         return {"error": f"Process with PID {pid} is considered too important for the system, so denying to send a signal."}
     if pid == os.getpid():
