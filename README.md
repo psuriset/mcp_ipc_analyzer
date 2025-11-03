@@ -2,9 +2,9 @@
 
 ## 1. Overview
 
-This project provides a sophisticated, multi-tool Model-Context-Protocol (MCP) server designed to give an AI model a deep, agentic understanding of a RHEL 8 system's processes and network communications.
+This project provides a sophisticated, multi-tool Model-Context-Protocol (MCP) server designed to give an AI model a deep, agentic understanding of a RHEL system's processes and network communications and allow killing processes.
 
-This server is **model-agnostic**. It provides tools to gather raw data and a specialized tool to generate a high-quality prompt for analysis by any powerful Large Language Model (LLM), such as the one in Cursor.
+This server is **model-agnostic**. It provides tools to gather raw data and a specialized tool to generate a high-quality prompt for analysis by any powerful Large Language Model (LLM).
 
 ## 2. Tools Provided
 
@@ -13,6 +13,8 @@ This server is **model-agnostic**. It provides tools to gather raw data and a sp
 2.  **`get_live_network_events` (Streaming):** This tool uses a high-performance eBPF agent to monitor only *new* network connections in real-time. It is best for observing changes as they happen.
 
 3.  **`generate_ipc_analysis_prompt`:** This tool automates the analysis process by calling the snapshot tool and formatting its output into a detailed prompt for an LLM.
+
+4.  **`send_signal_to_pid` (Dangerous!):** This tool allows to send a signal to almost any process on the machine, so you can e.g. send 'SIGINT' (and if that does not help even 'SIGKILL') to a process you want to terminate. This is dangerous to expose to AI and given this MCP server does not have any authentication, currently you are also exposing that to anybody on the network. Only use on test machines!
 
 ## 3. Prerequisites & Installation
 
@@ -45,18 +47,36 @@ The server will start and be available at `http://<your-server-ip>:8000`.
 
 ## 5. How to Use the Server's Tools
 
+To connect to MCP server running on remote machine, configure your AI agent
+to know about it. E.g. for Gemini CLI, you can use command like this:
+
+```bash
+gemini mcp add --transport http mcp_ipc_analyzer_on_machine1 http://machine1.example.com:8000/mcp
+```
+
+This will create a config file like this:
+
+```bash
+$ cat .gemini/settings.json
+{
+  "mcpServers": {
+    "mcp_ipc_analyzer_on_machine1": {
+      "httpUrl": "http://machine1.example.com:8000/mcp"
+    }
+  }
+}
+```
+
+For demonstation purposes, all MCP server tools are also exposed via regular
+API endpoints, so you can use them like this:
+
 ### Tool 1: Get Process Connection Snapshot (Recommended)
 
 This provides a full picture of the system's current network state.
 
 **Example `curl` command:**
 ```bash
-curl -X POST http://127.0.0.1:8000/mcp/call_tool \
--H "Content-Type: application/json" \
--d '{
-  "tool_name": "get_process_connection_snapshot",
-  "parameters": {}
-}'
+curl --silent http://machine1.example.com:8000/get_process_connection_snapshot | jq .
 ```
 
 **Example Output Snippet:**
@@ -103,27 +123,33 @@ This automates the analysis by generating a prompt for your favorite LLM.
 
 **Example `curl` command:**
 ```bash
-curl -X POST http://127.0.0.1:8000/mcp/call_tool \
--H "Content-Type: application/json" \
--d '{
-  "tool_name": "generate_ipc_analysis_prompt",
-  "parameters": {}
-}' > analysis_request.json
+curl --silent http://machine1.example.com:8000/generate_ipc_analysis_prompt | jq .
 ```
-Then, copy the `analysis_prompt` from the `analysis_request.json` file and paste it into Cursor.
+
+Then, copy the `analysis_prompt` from the `analysis_request.json` file and paste it into your AI agent.
 
 ### Tool 3: Get Live Network Events (Streaming)
 
 Use this to see new connections as they happen.
 
+**Example `curl` command (stream events for 10 seconds):**
+```bash
+curl --silent --no-buffer -X POST http://machine1.example.com:8000/get_live_network_events --json '{"duration": 10}' | jq .
+```
+
+### Tool 4: Send signal to PID (Dangerous!)
+
+Assuming you have process with PID 12345 running on a machine and you want to send `SIGINT` to it (to kill it effectively):
+
 **Example `curl` command:**
 ```bash
-curl -X POST http://127.0.0.1:8000/mcp/call_tool \
--H "Content-Type: application/json" \
--d '{
-  "tool_name": "get_live_network_events",
-  "parameters": {
-    "duration_seconds": 10
+curl --silent -X POST http://machine1.example.com:8000/send_signal_to_pid --json '{"pid": 12345, "sig_str": "SIGINT"}' | jq .
+{
+  "pid": 12345,
+  "sig_str": "SIGINT",
+  "message": "Signal sent to the process",
+  "process_status": {
+    "status": "No such process"
   }
-}'
+}
 ```

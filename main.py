@@ -10,17 +10,21 @@ import asyncio
 import json
 import psutil
 import socket
-import sys
-from fastapi import FastAPI, Request, HTTPException, Response
+import signal
+import os
+from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
 from fastapi_mcp import FastApiMCP
 
-from models import MonitorParams
+from models import MonitorParams, SignalParams
 from ebpf_agent.protocols import get_protocol
 
 AGENT_SCRIPT_PATH = "./ebpf_agent/agent.py"
 
-app = FastAPI(debug=True)
+app = FastAPI(
+    debug=True,
+    summary=f"An MCP server for {socket.gethostname()} machine with tools to gather system data, analyze inter process communication and signal processes.",
+)
 
 
 @app.get("/health", summary="Health Check")
@@ -32,7 +36,7 @@ async def health_check():
 @app.get(
     "/get_process_connection_snapshot",
     operation_id="get_process_connection_snapshot",
-    summary="Provides a comprehensive snapshot of all running processes and their currently active/listening network connections (TCP/UDP), including identified application protocols.",
+    summary=f"Provides a comprehensive snapshot of all running processes on machine {socket.gethostname()} and their currently active/listening network connections (TCP/UDP), including identified application protocols.",
 )
 def get_process_connection_snapshot():
     proc_list = []
@@ -136,7 +140,7 @@ async def _get_live_network_events(duration: MonitorParams):
 @app.post(
     "/get_live_network_events",
     operation_id="get_live_network_events",
-    summary="Runs a high-performance eBPF agent to capture only *new* network connections in real-time. Useful for monitoring changes.",
+    summary=f"Runs a high-performance eBPF agent on machine {socket.gethostname()} to capture only *new* network connections in real-time. Useful for monitoring changes.",
 )
 async def get_live_network_events(duration: MonitorParams):
     return StreamingResponse(
@@ -147,10 +151,10 @@ async def get_live_network_events(duration: MonitorParams):
 @app.get(
     "/generate_ipc_analysis_prompt",
     operation_id="generate_ipc_analysis_prompt",
-    summary="Gathers data using the other tools and constructs a detailed prompt for an LLM to perform a system IPC analysis.",
+    summary=f"Gathers data on machine {socket.gethostname()} using the other tools and constructs a detailed prompt for an LLM to perform a system IPC analysis.",
 )
 async def generate_ipc_analysis_prompt():
-    process_connections = get_connection_snapshot()
+    process_connections = get_process_connection_snapshot()
     analysis_prompt = f"""
 As an expert Linux Systems Analyst, your task is to analyze a snapshot of processes and their network connections from a RHEL 8 system to identify Inter-Process Communication (IPC) patterns.
 
@@ -176,15 +180,49 @@ Present your analysis in a clear, structured format.
     }
 
 
+@app.post(
+    "/send_signal_to_pid",
+    operation_id="send_signal_to_pid",
+    summary=f"Send given signal to process identified by given PID on machine {socket.gethostname()}. This is very dangerous, as it could kill any process on the machine. E.g. use signal 'SIGINT' to send 'interrupt from keyboard (CTRL + C)' or if it does not make process to stop, send 'SIGKILL' to 'Kill signal - it cannot be caught, blocked, or ignored'.",
+)
+async def send_signal_to_pid(params: SignalParams):
+    if not params.sig_str.startswith("SIG"):
+        return {"error": f"Provided signal name '{params.sig_str}' does not start with 'SIG', so does not look like valid signal. You can use e.g. 'SIGINT'."}
+    sig = getattr(signal, params.sig_str, None)
+    if sig is None:
+        return {"error": f"Provided signal name '{params.sig_str}' not defined in Python's 'signal' module. You can use e.g. 'SIGINT'."}
+    if not isinstance(sig, signal.Signals):
+        return {"error": f"Provided signal name '{params.sig_str}' is not a valid signal in Python's 'signal' module. You can use e.g. 'SIGINT'."}
+    if params.pid < 0:
+        return {"error": f"PID {params.pid} can not be negative."}
+    if params.pid in (0, 1, 2):
+        return {"error": f"Process with PID {params.pid} is considered too important for the system, so denying to send a signal."}
+    if params.pid == os.getpid():
+        return {"error": f"Process with PID {params.pid} is the MCP server itself, so denying to send a signal."}
+    if not psutil.pid_exists(params.pid):
+        return {"error": f"Process with PID {params.pid} does not exist."}
+    try:
+        os.kill(params.pid, sig)
+    except Exception as e:
+        return {"error": f"Failed to send a signal {sig.name} to process {params.pid}: {e}"}
+    else:
+        try:
+            current = psutil.Process(params.pid).as_dict()
+        except psutil.NoSuchProcess:
+            current = {"status": "No such process"}
+        return {"pid": params.pid, "sig_str": sig.name, "message": "Signal sent to the process", "process_status": current}
+
+
 if __name__ == "__main__":
     mcp = FastApiMCP(
         app,
-        name="RHEL IPC Analysis MCP Server (Model Agnostic)",
-        description="An MCP server with tools to gather system data and analyze process IPC.",
+        name=f"IPC Analysis MCP Server for {socket.gethostname()} machine",
+        description=f"An MCP server for {socket.gethostname()} machine with tools to gather system data, analyze inter process communication and signal processes.",
         include_operations=[
             "get_process_connection_snapshot",
             "get_live_network_events",
             "generate_ipc_analysis_prompt",
+            "send_signal_to_pid",
         ],
     )
     mcp.mount_http()
