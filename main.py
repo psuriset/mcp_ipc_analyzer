@@ -190,6 +190,8 @@ async def send_signal_to_pid(params: SignalParams):
         return {"error": f"Provided signal name '{params.sig_str}' not defined in Python's 'signal' module. You can use e.g. 'SIGINT'."}
     if not isinstance(sig, signal.Signals):
         return {"error": f"Provided signal name '{params.sig_str}' is not a valid signal in Python's 'signal' module. You can use e.g. 'SIGINT'."}
+    if params.pid < 0:
+        return {"error": f"PID {params.pid} can not be negative."}
     if params.pid in (0, 1, 2):
         return {"error": f"Process with PID {params.pid} is considered too important for the system, so denying to send a signal."}
     if params.pid == os.getpid():
