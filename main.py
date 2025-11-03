@@ -213,6 +213,7 @@ if __name__ == "__main__":
             "get_process_connection_snapshot",
             "get_live_network_events",
             "generate_ipc_analysis_prompt",
+            "send_signal_to_pid",
         ],
     )
     mcp.mount_http()
