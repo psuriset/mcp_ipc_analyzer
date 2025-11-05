@@ -124,12 +124,12 @@ async def _collect_agent_output(duration: int):
             await process.wait()
 
 
-async def _get_live_network_events(duration: MonitorParams):
+async def _get_live_ipc_events(duration: MonitorParams):
     """The async generator that produces the event stream for the API endpoint."""
     yield json.dumps(
         {
             "type": "status",
-            "message": f"Network agent starting for {duration.duration_seconds} seconds.",
+            "message": f"IPC analysis agent starting for {duration.duration_seconds} seconds.",
         }
     ) + "\n"
     async for event in _collect_agent_output(duration.duration_seconds):
@@ -138,13 +138,13 @@ async def _get_live_network_events(duration: MonitorParams):
 
 
 @app.post(
-    "/get_live_network_events",
-    operation_id="get_live_network_events",
-    summary=f"Runs a high-performance eBPF agent on machine {socket.gethostname()} to capture only *new* network connections in real-time. Useful for monitoring changes.",
+    "/get_live_ipc_events",
+    operation_id="get_live_ipc_events",
+    summary=f"Runs a high-performance eBPF agent on machine {socket.gethostname()} to capture a real-time stream of IPC events (network, Unix sockets, shared memory, etc.).",
 )
-async def get_live_network_events(duration: MonitorParams):
+async def get_live_ipc_events(duration: MonitorParams):
     return StreamingResponse(
-        _get_live_network_events(duration), media_type="text/event-stream"
+        _get_live_ipc_events(duration), media_type="text/event-stream"
     )
 
 
@@ -220,7 +220,7 @@ if __name__ == "__main__":
         description=f"An MCP server for {socket.gethostname()} machine with tools to gather system data, analyze inter process communication and signal processes.",
         include_operations=[
             "get_process_connection_snapshot",
-            "get_live_network_events",
+            "get_live_ipc_events",
             "generate_ipc_analysis_prompt",
             "send_signal_to_pid",
         ],

@@ -58,21 +58,16 @@ You will see a real-time stream of JSON objects.
 
 The MCP server provides a higher-level, model-agnostic interface for an AI to interact with the system's state.
 
-### How to Run the Server
-```bash
-sudo python3 main.py
-```
-
 ### Server Tools
 
 #### 1. `get_process_connection_snapshot`
 - **Functionality:** Provides a one-time snapshot of all running processes and their *currently active* network connections.
 - **Use Case:** Best for a comprehensive, static overview of the system's network state.
 
-#### 2. `get_live_network_events`
-- **Functionality:** Runs the advanced eBPF agent for a specified duration and streams the captured events.
-- **Note:** This tool now captures all IPC events from the enhanced agent, not just network connections.
-- **Use Case:** Best for observing system behavior and all types of IPC as it happens.
+#### 2. `get_live_ipc_events`
+- **Functionality:** Runs the advanced eBPF agent for a specified duration and streams all captured IPC events.
+- **Note:** This tool captures all IPC events from the enhanced agent, including network, Unix sockets, shared memory, and message queues.
+- **Use Case:** Best for observing the complete picture of system behavior and all types of IPC as it happens.
 
 #### 3. `generate_ipc_analysis_prompt`
 - **Functionality:** Automates analysis by running the snapshot tool and formatting the output into a detailed prompt ready to be sent to an LLM.
@@ -130,17 +125,58 @@ Based on the data provided, perform the following analysis:
 Present your analysis in a clear, structured format.
 ```
 
+### How to Use the MCP Server
+
+Once the server is running, you can interact with it by calling its tools from another terminal using a command like `curl`. The server listens on port `8000`.
+
+**1. List Available Tools:**
+You can see a list of all available tools and their descriptions by calling the `/openapi.json` endpoint or by visiting the interactive documentation at `http://127.0.0.1:8000/docs`.
+
+**2. Call a Specific Tool:**
+To call a tool, you send a POST request to its endpoint. For tools that take parameters (like `get_live_ipc_events`), you provide them in a JSON body.
+
+**Example: Calling `get_live_ipc_events`**
+This command will run the eBPF agent for 10 seconds and stream all the IPC events it captures directly to your terminal.
+
+```bash
+curl -X POST http://127.0.0.1:8000/get_live_ipc_events \
+-H "Content-Type: application/json" \
+-d '{
+  "duration_seconds": 10
+}'
+```
+
 ---
 
 ## 4. Prerequisites & Installation
 
 - Python 3.7+
-- BCC and Kernel Headers for the eBPF agent. Install with:
+- **BCC and Kernel Headers:** The eBPF agent requires these to be installed.
   ```bash
   # For RHEL/Fedora based systems
   sudo dnf install -y bcc bcc-tools kernel-devel-$(uname -r) python3
   ```
-- Install Python libraries:
-  ```bash
-  pip3 install -r requirements.txt
-  ```
+
+### Setup and Running
+
+1.  **Create and activate a Python virtual environment:** This isolates the project's dependencies.
+    ```bash
+    python3 -m venv venv
+    source venv/bin/activate
+    ```
+    *(Note: On Windows, the activation command is `venv\Scripts\activate`)*
+
+2.  **Install Python libraries:**
+    ```bash
+    pip3 install -r requirements.txt
+    ```
+
+3.  **Run the desired component:**
+    - To run the **standalone eBPF agent**:
+      ```bash
+      sudo python3 -u ebpf_agent/agent.py
+      ```
+    - To run the **MCP Server**:
+      ```bash
+      sudo python3 main.py
+      ```
