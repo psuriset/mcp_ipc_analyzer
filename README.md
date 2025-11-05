@@ -49,7 +49,7 @@ You will see a real-time stream of JSON objects.
 
 *Shared Memory Example:*
 ```json
-{"timestamp": "2023-10-27T15:32:10.987654", "process": {"pid": 11223, "ppid": 11220, "command": "my_app"}, "ipc_mechanism": "systemv_shared_memory", "details": {"action": "attach", "shmid": 123456, "shmaddr": "0x7f1234567890"}}
+{"timestamp": "2023-10-27T15:32:10.987654", "process": {"pid": 11223, "ppid": 11220, "command": "python3"}, "ipc_mechanism": "systemv_shared_memory", "details": {"action": "attach", "shmid": 123456, "shmaddr": "0x7f1234567890"}}
 ```
 
 ---
@@ -65,17 +65,70 @@ sudo python3 main.py
 
 ### Server Tools
 
-1.  **`get_process_connection_snapshot` (Primary Tool):**
-    - **Functionality:** Provides a one-time snapshot of all running processes and their *currently active* network connections.
-    - **Use Case:** Best for a comprehensive, static overview of the system's network state.
+#### 1. `get_process_connection_snapshot`
+- **Functionality:** Provides a one-time snapshot of all running processes and their *currently active* network connections.
+- **Use Case:** Best for a comprehensive, static overview of the system's network state.
 
-2.  **`get_live_network_events` (Streaming):**
-    - **Functionality:** Runs the advanced eBPF agent for a specified duration and streams the captured events.
-    - **Note:** This tool now captures all IPC events from the enhanced agent, not just network connections.
-    - **Use Case:** Best for observing system behavior and all types of IPC as it happens.
+#### 2. `get_live_network_events`
+- **Functionality:** Runs the advanced eBPF agent for a specified duration and streams the captured events.
+- **Note:** This tool now captures all IPC events from the enhanced agent, not just network connections.
+- **Use Case:** Best for observing system behavior and all types of IPC as it happens.
 
-3.  **`generate_ipc_analysis_prompt`:**
-    - **Functionality:** Automates analysis by running the snapshot tool and formatting the output into a detailed prompt for an LLM.
+#### 3. `generate_ipc_analysis_prompt`
+- **Functionality:** Automates analysis by running the snapshot tool and formatting the output into a detailed prompt ready to be sent to an LLM.
+- **Use Case:** The quickest way to go from raw data to expert-level analysis.
+
+##### Example Generated Prompt:
+The `analysis_prompt` field in the tool's output will contain a prompt similar to the following:
+
+```text
+As an expert Linux Systems Analyst, your task is to analyze a snapshot of processes and their network connections from a RHEL 8 system to identify Inter-Process Communication (IPC) patterns.
+
+Here is the snapshot of processes with active or listening network connections:
+--- PROCESS CONNECTION SNAPSHOT ---
+{
+  "process_connections": [
+    {
+      "pid": 1234,
+      "name": "sshd",
+      "user": "root",
+      "command": "/usr/sbin/sshd -D",
+      "connections": [
+        {
+          "transport_protocol": "TCP",
+          "identified_application_protocol": "SSH",
+          "local_address": "0.0.0.0:22",
+          "remote_address": "N/A",
+          "status": "LISTEN"
+        }
+      ]
+    },
+    {
+      "pid": 5678,
+      "name": "curl",
+      "user": "user1",
+      "command": "curl https://www.google.com",
+      "connections": [
+        {
+          "transport_protocol": "TCP",
+          "identified_application_protocol": "HTTPS/TLS",
+          "local_address": "192.168.1.10:54321",
+          "remote_address": "142.250.191.196:443",
+          "status": "ESTABLISHED"
+        }
+      ]
+    }
+  ]
+}
+--- END PROCESS CONNECTION SNAPSHOT ---
+
+Based on the data provided, perform the following analysis:
+1.  **Identify Key Services:** List the processes that are acting as servers (i.e., in a 'LISTEN' state). What services are they providing based on their port and process name?
+2.  **Identify Key Clients:** List the processes that have established outbound connections. What external services are they communicating with?
+3.  **Provide a High-Level Summary:** Write a brief summary of the system's role based on this snapshot. Is it primarily a web server, a database server, a client machine, or a mix of roles?
+
+Present your analysis in a clear, structured format.
+```
 
 ---
 
